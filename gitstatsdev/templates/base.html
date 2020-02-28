@@ -1,0 +1,38 @@
+﻿<!DOCTYPE html>
+<html>
+  <head>
+    <title>GitStatsDev - {{ title }}</title>
+    <link rel="stylesheet" href="https://unpkg.com/picnic"/>
+  </head>
+  <body>
+    <nav>
+      <a href="/" class="brand"><span>GitStatsDev</span></a>
+
+      <!-- responsive-->
+      <input id="bmenub" type="checkbox" class="show">
+      <label for="bmenub" class="burger pseudo button">Menu</label>
+
+      <div class="menu">
+        <a href="/update" class="button warning">Update Repositories</a>
+      </div>
+    </nav>
+
+    <article class="flex two" style="padding: 3em 1em;">
+      {% block content %}
+      <div>
+        <h2>Repositories</h2>
+        {% for repo in repos %}
+        <a href="/repo/{{ repo.owner }}/{{ repo.name }}">
+        <span class="stack">{{repo.owner}} {{ repo.name }}</span></a>
+        {% endfor %}
+        <form action="/repo" method="post">
+          <input type="text" name="owner" placeholder="Ownername for repository to add">
+          <input type="text" name="name" placeholder="Repository to add">
+          <input type="submit" value="Add Repository">
+        </form>
+      </div>
+      {% endblock %}
+    </article>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/umbrellajs"/> -->
+  </body>
+</html>
