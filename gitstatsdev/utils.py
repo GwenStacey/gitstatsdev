@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 
 from .models import DB, Repo
-from .queries import repo_query
+from .queries import repo_query, initial_PR_query, cont_PR_query
 
 SECRET = config('SECRET')
 URL = 'https://api.github.com/graphql'
@@ -23,7 +23,8 @@ def run_query(query, variables):
 
 def pull_repo(owner, name):
     variables = {'owner': owner, 'name': name}
-    data = run_query(repo_query, variables).json()['data']['repository']
+    response = run_query(repo_query, variables)
+    data = response.json()['data']['repository']
 
     data['stars'] = data['stars']['totalCount']
     data['owner'] = data['owner']['login']
@@ -53,11 +54,17 @@ def pull_repo(owner, name):
     data['PRsPerDay'] = data['totalPRs'] / data['ageInDays']
     data['issuesPerDay'] = data['totalIssues'] / data['ageInDays']
 
-    pull_requests = data['pullRequests']['nodes']
-    del data['pullRequests']
+    return data
 
-    if len(pull_requests) != 0:
-        pr_df = pd.DataFrame.from_records(pull_requests)
+
+def summarize_PRs(pr_df):
+    data = {}
+    if pr_df.empty:
+        data['uniquePRauthors'] = 0
+        data['medianOpenPRhrsAge'] = None
+        data['medianPRhrsToClose'] = None
+        data['medianPRhrsToMerge'] = None
+    else:
         pr_df['author'] = [author.get('login') if author is not None else ''
                            for author in pr_df['author']]
         pr_df['createdAt'] = pd.to_datetime(pr_df['createdAt'],
@@ -91,49 +98,59 @@ def pull_repo(owner, name):
                              pr_df['createdAt']).dt.total_seconds()[mergedPRs]
             data['medianPRhrsToMerge'] = PRsecsToMerge.median()/SECS_PER_HOUR
 
-    else:
-        data['uniquePRauthors'] = 0
-        data['medianOpenPRhrsAge'] = None
-        data['medianPRhrsToClose'] = None
-        data['medianPRhrsToMerge'] = None
-
     return data
 
 
-def add_or_update_repo(owner, name):
-    try:
-        # Add db_repo to Repo table (or check if existing)
-        repo_dict = pull_repo(owner, name)
-        db_repo = Repo(owner=repo_dict['owner'],
-                       name=repo_dict['name'],
-                       description=repo_dict['description'],
-                       primary_language=repo_dict['primaryLanguage'],
-                       created_at=repo_dict['createdAt'],
-                       updated_at=repo_dict['updatedAt'],
-                       disk_usage=repo_dict['diskUsage'],
-                       stars=repo_dict['stars'],
-                       forks=repo_dict['forks'],
-                       total_issues=repo_dict['totalIssues'],
-                       open_issues=repo_dict['openIssues'],
-                       closed_issues=repo_dict['closedIssues'],
-                       total_PRs=repo_dict['totalPRs'],
-                       open_PRs=repo_dict['closedPRs'],
-                       merged_PRs=repo_dict['mergedPRs'],
-                       closed_PRs=repo_dict['closedPRs'],
-                       vulnerabilities=repo_dict['vulnerabilityAlerts'],
-                       unique_PR_authors=repo_dict['uniquePRauthors'],
-                       PR_acceptance_rate=repo_dict['PRacceptanceRate'],
-                       median_open_PR_hrs_age=repo_dict['medianOpenPRhrsAge'],
-                       median_PR_hrs_to_merge=repo_dict['medianPRhrsToMerge'],
-                       median_PR_hrs_to_close=repo_dict['medianPRhrsToClose'],
-                       )
-        DB.session.merge(db_repo)
+def add_or_update_repo(owner, name, app):
+    repo_dict = pull_repo(owner, name)
 
-    except Exception as e:
-        print('Error processing {} {}: {}'.format(owner, name, e))
-        raise e
-    else:
+    variables = {'owner': owner, 'name': name}
+    response = run_query(initial_PR_query, variables)
+    data = response.json()['data']
+    df = pd.DataFrame.from_records(data['repository']['pullRequests']['nodes'])
+
+    i = 0
+    while data['repository']['pullRequests']['pageInfo']['hasNextPage']:
+        i += 1
+        yield 'Processing PRs {} to {} - '.format((i-1)*50, i*50)
+        cursor = data['repository']['pullRequests']['pageInfo']['endCursor']
+        variables['cursor'] = cursor
+        response = run_query(cont_PR_query, variables)
+        yield 'cursor {}.<br>'.format(cursor)
+        data = response.json()['data']
+        df = df.append(pd.DataFrame.from_records(
+                data['repository']['pullRequests']['nodes']))
+
+    pr_dict = summarize_PRs(df)
+    repo_dict.update(pr_dict)
+
+    db_repo = Repo(owner=repo_dict['owner'],
+                   name=repo_dict['name'],
+                   description=repo_dict['description'],
+                   primary_language=repo_dict['primaryLanguage'],
+                   created_at=repo_dict['createdAt'],
+                   updated_at=repo_dict['updatedAt'],
+                   disk_usage=repo_dict['diskUsage'],
+                   stars=repo_dict['stars'],
+                   forks=repo_dict['forks'],
+                   total_issues=repo_dict['totalIssues'],
+                   open_issues=repo_dict['openIssues'],
+                   closed_issues=repo_dict['closedIssues'],
+                   total_PRs=repo_dict['totalPRs'],
+                   open_PRs=repo_dict['openPRs'],
+                   merged_PRs=repo_dict['mergedPRs'],
+                   closed_PRs=repo_dict['closedPRs'],
+                   vulnerabilities=repo_dict['vulnerabilityAlerts'],
+                   unique_PR_authors=repo_dict['uniquePRauthors'],
+                   PR_acceptance_rate=repo_dict['PRacceptanceRate'],
+                   median_open_PR_hrs_age=repo_dict['medianOpenPRhrsAge'],
+                   median_PR_hrs_to_merge=repo_dict['medianPRhrsToMerge'],
+                   median_PR_hrs_to_close=repo_dict['medianPRhrsToClose'],
+                   )
+    with app.app_context():
+        DB.session.merge(db_repo)
         DB.session.commit()
+    yield '{} {} added!'.format(owner, name)
 
 
 def update_all_repos():

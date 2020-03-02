@@ -40,17 +40,82 @@ repo_query = '''
             createdAt
             updatedAt
             diskUsage
-            pullRequests (last: 50) {
+        }
+    }
+    '''
+
+initial_PR_query = '''
+    query ($owner: String!, $name: String!){
+        repository(owner: $owner, name: $name) {
+            pullRequests(first: 50) {
+                pageInfo {
+                    endCursor
+                    hasNextPage
+                }
                 nodes {
-                author {
-                    login
+                    id
+                    state
+                    createdAt
+                    closedAt
+                    title
+                    bodyText
+                    author {
+                        login
                     }
-                state
-                createdAt
-                closedAt
-                changedFiles
-                additions
-                deletions
+                    participants {
+                        totalCount
+                    }
+                    comments {
+                        totalCount
+                    }
+                    reactions {
+                        totalCount
+                    }
+                    commits {
+                        totalCount
+                    }
+                    changedFiles
+                    additions
+                    deletions
+                }
+            }
+        }
+    }
+    '''
+
+cont_PR_query = '''
+    query ($owner: String!, $name: String!, $cursor: String!) {
+        repository(owner: $owner, name: $name) {
+            pullRequests(first: 50 after: $cursor) {
+                pageInfo {
+                    endCursor
+                    hasNextPage
+                }
+                nodes {
+                    id
+                    state
+                    createdAt
+                    closedAt
+                    title
+                    bodyText
+                    author {
+                        login
+                    }
+                    participants {
+                        totalCount
+                    }
+                    comments {
+                        totalCount
+                    }
+                    reactions {
+                        totalCount
+                    }
+                    commits {
+                        totalCount
+                    }
+                    changedFiles
+                    additions
+                    deletions
                 }
             }
         }

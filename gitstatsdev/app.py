@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, Response
 from decouple import config
 from dotenv import load_dotenv
 from .models import DB, Repo
@@ -25,12 +25,12 @@ def create_app():
     def repo(owner=None, name=None, message=''):
         owner = owner or request.values['owner']
         name = name or request.values['name']
-        try:
-            if request.method == 'POST':
-                add_or_update_repo(owner, name)
-                message = "{} {} successfully added!".format(owner, name)
-        except Exception as e:
-            message = "Error adding {} {}: {}".format(owner, name, e)
+        # try:
+        if request.method == 'POST':
+            return Response(add_or_update_repo(owner, name, app),
+                            mimetype='text/html')
+        # except Exception as e:
+        #    message = "Error adding {} {}: {}".format(owner, name, e)
 
         if request.method == 'GET':
             db_repo = Repo.query.get((owner, name))
